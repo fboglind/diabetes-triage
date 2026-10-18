@@ -50,3 +50,11 @@ def test_key_order_does_not_matter(client):
     a = client.post("/predict", json=SAMPLE).json()["prediction"]
     b = client.post("/predict", json=shuffled).json()["prediction"]
     assert a == b
+
+
+def test_patient_id_is_logged_not_returned(client, caplog):
+    with caplog.at_level("INFO", logger="triage.predictions"):
+        r = client.post("/predict", json={**SAMPLE, "patient_id": "p-123"})
+    assert r.status_code == 200
+    assert set(r.json()) == {"prediction"}
+    assert any('"patient_id": "p-123"' in m for m in caplog.messages)

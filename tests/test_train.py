@@ -22,3 +22,10 @@ def test_training_is_deterministic(artifacts):
     train.main()
     second = json.loads(config.METRICS_PATH.read_text())["rmse_test"]
     assert first == second
+
+
+def test_calibrated_flag_improves_recall(artifacts):
+    m = json.loads(config.METRICS_PATH.read_text())
+    naive, calibrated = m["flag_test"]["naive"], m["flag_test"]["calibrated"]
+    assert calibrated["threshold"] < naive["threshold"]
+    assert calibrated["recall"] > naive["recall"]
