@@ -1,4 +1,7 @@
+import json
+import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import joblib
 import pandas as pd
@@ -7,10 +10,14 @@ from pydantic import BaseModel, ConfigDict
 
 from triage import config
 
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger("triage.predictions")
+
 
 class PatientFeatures(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    patient_id: str | None = None
     age: float
     sex: float
     bmi: float
@@ -42,6 +49,19 @@ def health():
 
 @app.post("/predict")
 def predict(patient: PatientFeatures):
-    row = pd.DataFrame([patient.model_dump()])[app.state.features]
+    features = patient.model_dump(exclude={"patient_id"})
+    row = pd.DataFrame([features])[app.state.features]
     prediction = float(app.state.pipeline.predict(row)[0])
+    logger.info(
+        json.dumps(
+            {
+                "event": "prediction",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "patient_id": patient.patient_id,
+                "model_version": app.state.model_version,
+                "features": features,
+                "prediction": prediction,
+            }
+        )
+    )
     return {"prediction": prediction}
