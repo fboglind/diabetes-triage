@@ -1,9 +1,0 @@
-{
-  "model_version": "v0.1",
-  "model": "StandardScaler + LinearRegression",
-  "rmse_test": 53.8534,
-  "n_train": 353,
-  "n_test": 89,
-  "seed": 42,
-  "sklearn_version": "1.9.1"
-}
