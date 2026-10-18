@@ -45,4 +45,3 @@ def predict(patient: PatientFeatures):
     row = pd.DataFrame([patient.model_dump()])[app.state.features]
     prediction = float(app.state.pipeline.predict(row)[0])
     return {"prediction": prediction}
-import os
