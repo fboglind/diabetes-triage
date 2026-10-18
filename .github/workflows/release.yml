@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write    # create the GitHub Release
+  packages: write    # push the image to GHCR
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check tag matches MODEL_VERSION in code
+        run: |
+          CODE_VERSION=$(python3 -c "from triage import config; print(config.MODEL_VERSION)")
+          echo "tag=$TAG code=$CODE_VERSION"
+          [ "$TAG" = "$CODE_VERSION" ] || { echo "::error::Tag $TAG != MODEL_VERSION $CODE_VERSION"; exit 1; }
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          awk -v ver="$TAG" '/^## /{p = index($0, "[" ver "]") > 0} p' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "::error::No CHANGELOG entry for $TAG"; exit 1; }
+          cat notes.md
+
+      - name: Build image
+        run: |
+          docker build \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --label org.opencontainers.image.version=$TAG \
+            -t "$IMAGE:$TAG" .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name smoke -p 80:80 "$IMAGE:$TAG"
+          ./scripts/smoke_test.sh http://localhost:80 "$TAG"
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs smoke || true
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push image
+        run: docker push "$IMAGE:$TAG"
+
+      - name: Extract metrics from the shipped image
+        run: |
+          cid=$(docker create "$IMAGE:$TAG")
+          docker cp "$cid:/app/artifacts/metrics.json" metrics.json
+          docker rm "$cid"
+          {
+            echo
+            echo "### Metrics (from the shipped image)"
+            echo '```json'; cat metrics.json; echo '```'
+            echo
+            echo "### Run"
+            echo '```bash'
+            echo "docker pull $IMAGE:$TAG"
+            echo "docker run -it -p 80:80 $IMAGE:$TAG"
+            echo '```'
+          } >> notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$TAG" metrics.json --title "$TAG" --notes-file notes.md
